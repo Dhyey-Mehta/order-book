@@ -56,7 +56,7 @@ void Book::match_order(Order* order) {
   }
 
   auto limit_pair = limits->find(order->price);
-  if (limit_pair == limits->end()) { return;}
+  if (limit_pair == limits->end()) { return; }
 
   Limit *curr_limit = limit_pair->second;
 
@@ -71,7 +71,7 @@ void Book::match_order(Order* order) {
     to_be_matched->quantity -= quantity_matched;
     order->quantity -= quantity_matched;
     curr_limit->total_volume -= quantity_matched;
-    std::cout << "matched " << quantity_matched << " of " << order->id << " with " << to_be_matched->id << std::endl;
+    std::cout << "matched " << quantity_matched << " of " << order->id << " with " << to_be_matched->id << " @ " << order->price << std::endl;
 
     if (to_be_matched->quantity == 0) {
       curr_limit->orders.pop_front();
