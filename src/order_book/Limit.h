@@ -13,6 +13,7 @@ public:
     ~Limit();
     Limit(double price);
     void add_order(Order* order);
+    void remove_order(std::string order_id);
 };
 
 #endif

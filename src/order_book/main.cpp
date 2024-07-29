@@ -14,16 +14,19 @@ int main() {
         25,
         OrderType::BUY)
     );
-    book->new_order( new Order(
-        "order2",
-        "cust2",
-        10,
-        25,
-        OrderType::SELL)
-    );
-    
     book->print_book();
-    
+    book->delete_order("order");
+    book->print_book();
+
+
+    // book->new_order( new Order(
+    //     "order2",
+    //     "cust2",
+    //     10,
+    //     25,
+    //     OrderType::SELL)
+    // );
+        
     delete book; 
     return 0;
 }

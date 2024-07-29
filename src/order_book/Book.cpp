@@ -41,7 +41,15 @@ void Book::new_order(Order* order) {
   if (order -> quantity > 0) {
     Limit *limit = find_or_create_limit(order->price, order->type);
     limit->add_order(order);
+    order_map[order->id] = order;
   }
+}
+
+void Book::delete_order(std::string order_id) {
+  // TODO: do checking here to check if id exists in order_map
+  Order *to_remove = order_map[order_id];
+  Limit *limit = find_or_create_limit(to_remove->price, to_remove->type);
+  limit->remove_order(order_id);
 }
 
 void Book::match_order(Order* order) {
