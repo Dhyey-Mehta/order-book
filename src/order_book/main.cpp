@@ -9,12 +9,14 @@ int main() {
     Book* book = new Book();
     book->new_order( new Order(
         "order",
+        "cust1",
         10,
         25,
         OrderType::BUY)
     );
     book->new_order( new Order(
         "order2",
+        "cust2",
         10,
         25,
         OrderType::SELL)
