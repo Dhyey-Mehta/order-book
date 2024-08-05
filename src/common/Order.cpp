@@ -18,7 +18,7 @@ std::string Order::serializeOrder() {
     return oss.str();
 }
 
-static Order* deserializeOrder(std::string str) {
+Order* Order::deserializeOrder(std::string str) {
     std::istringstream iss(str);
     std::string prefix, id, cust_id;
     double price;

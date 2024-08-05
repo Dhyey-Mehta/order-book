@@ -72,7 +72,7 @@ int main () {
 
     int message_count = 1;
     const char *topic = "orders";
-    Order testOrder("1", "cust123", 100.5, 10, BUY);
+    Order testOrder("1", "cust123", 100.5, 15, SELL);
     std::string serializedOrder = testOrder.serializeOrder();
     const char *key = testOrder.id.c_str();
     const char *value = serializedOrder.c_str();
