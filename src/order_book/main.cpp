@@ -7,13 +7,14 @@
 
 int main() {
     Book* book = new Book();
-    book->new_order( new Order(
+    Order *order = new Order(
         "order",
         "cust1",
         10,
         25,
-        OrderType::BUY)
+        OrderType::SELL
     );
+    book->new_order(order);
     book->print_book();
     book->delete_order("order");
     book->print_book();

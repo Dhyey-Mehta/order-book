@@ -7,3 +7,13 @@ void Order::decrementQuantity(int matchedQuantity) {
     quantity -= matchedQuantity;
 }
 
+std::string Order::serializeOrder() {
+    std::ostringstream oss;
+    oss << "order:"
+        << id << ','
+        << cust_id << ','
+        << price << ','
+        << quantity << ','
+        << static_cast<int>(type);
+    return oss.str();
+}
