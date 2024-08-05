@@ -111,7 +111,7 @@ int main() {
             try {
                 Order* order = Order::deserializeOrder(payload);
                 book->new_order(order);
-                book->print_book();
+                // book->print_book();
             } catch (const std::exception& e) {
                 std::cerr << "Failed to deserialize order: " << e.what() << std::endl;
             }
@@ -127,6 +127,8 @@ int main() {
 
     // Destroy the consumer.
     rd_kafka_destroy(consumer);
+
+    book->print_book();
 
     delete book;
     return 0;
