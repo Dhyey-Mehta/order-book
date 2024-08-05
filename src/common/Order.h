@@ -18,6 +18,7 @@ class Order {
       Order(std::string id, std::string cust_id, double price, int quantity, OrderType type);
       void decrementQuantity(int matchedQuantity);
       std::string serializeOrder();
+      static Order* deserializeOrder(std::string str);
 };
 
 #endif

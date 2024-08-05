@@ -38,7 +38,7 @@ std::map<std::string, char*> read_config(const std::string &filename) {
     return config;
 }
 
-int main (int argc, char **argv) {
+int main () {
     rd_kafka_t *producer;
     rd_kafka_conf_t *conf;
     char errstr[512];
