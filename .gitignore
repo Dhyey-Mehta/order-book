@@ -1,9 +1,7 @@
 # Ignore object files
 *.o
 
-# Ignore the producer executable
-src/trading_client/producer
-src/common/kafka_config.txt
+src/order_book/kafka_config.txt
 
 # Ignore the trading_app executable
 src/order_book/trading_app
@@ -23,4 +21,4 @@ dist/
 Thumbs.db
 *.swp
 *.swo
-.vscode/
+.vscode/*

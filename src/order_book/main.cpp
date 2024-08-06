@@ -5,11 +5,13 @@
 #include <map>
 #include <string>
 #include <cstring>
+#include <vector>
 
 #include "Book.h"
-#include "../common/Order.h"
+#include "Match.h"
 #include "Limit.h"
-#include "../common/kafka.cpp"
+#include "Order.h"
+#include "kafka.cpp"
 
 static volatile sig_atomic_t run = 1;
 
@@ -35,6 +37,22 @@ std::map<std::string, char*> read_config(const std::string &filename) {
     return config;
 }
 
+// void produce_match(rd_kafka_t* producer, std::string match_str) {
+//     rd_kafka_resp_err_t err = rd_kafka_producev(
+//         producer,
+//         RD_KAFKA_V_TOPIC("matches"),
+//         RD_KAFKA_V_PARTITION(RD_KAFKA_PARTITION_UA),
+//         RD_KAFKA_V_MSGFLAGS(RD_KAFKA_MSG_F_COPY),
+//         RD_KAFKA_V_VALUE(const_cast<char*>(match_str.c_str()), match_str.size()),
+//         RD_KAFKA_V_OPAQUE(NULL),
+//         RD_KAFKA_V_END
+//     );
+
+//     if (err) {
+//         std::cerr << "Failed to produce match: " << rd_kafka_err2str(err) << std::endl;
+//     }
+// }
+
 int main() {
     Book* book = new Book();
 
@@ -46,7 +64,7 @@ int main() {
     // Create client configuration
     conf = rd_kafka_conf_new();
 
-    std::map<std::string, char*> config = read_config("../common/kafka_config.txt");
+    std::map<std::string, char*> config = read_config("kafka_config.txt");
     set_config(conf, "bootstrap.servers", config["bootstrap.servers"]);
     set_config(conf, "sasl.username", config["sasl.username"]);
     set_config(conf, "sasl.password", config["sasl.password"]);
@@ -60,7 +78,7 @@ int main() {
     // Create the Consumer instance.
     consumer = rd_kafka_new(RD_KAFKA_CONSUMER, conf, errstr, sizeof(errstr));
     if (!consumer) {
-        std::cerr << "Failed to intialize consumer: " << errstr << std::endl;
+        std::cerr << "Failed to initialize consumer: " << errstr << std::endl;
         delete book;
         return 1;
     }
@@ -110,8 +128,12 @@ int main() {
             std::string payload(static_cast<char*>(consumer_message->payload), consumer_message->len);
             try {
                 Order* order = Order::deserializeOrder(payload);
-                book->new_order(order);
-                // book->print_book();
+                std::vector<Match> matches = book->new_order(order);
+                
+                // Produce matches to Kafka
+                // for (auto match : matches) {
+                //     produce_match(producer, match.serializeMatch());
+                // }
             } catch (const std::exception& e) {
                 std::cerr << "Failed to deserialize order: " << e.what() << std::endl;
             }
