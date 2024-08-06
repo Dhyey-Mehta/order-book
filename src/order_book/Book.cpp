@@ -35,6 +35,7 @@ Limit* Book::find_or_create_limit(double price, OrderType type) {
 }
 
 void Book::new_order(Order* order) {
+  std::cout << order->serializeOrder() << std::endl;
   match_order(order);
 
   // add order if there is any quantity left
@@ -79,7 +80,8 @@ void Book::match_order(Order* order) {
     to_be_matched->quantity -= quantity_matched;
     order->quantity -= quantity_matched;
     curr_limit->total_volume -= quantity_matched;
-    std::cout << "matched " << quantity_matched << " of " << order->id << " with " << to_be_matched->id << " @ " << order->price << std::endl;
+    Match matched(order->id, to_be_matched->id, order->price, quantity_matched);
+    std::cout << matched.serializeMatch() << std::endl;
 
     if (to_be_matched->quantity == 0) {
       curr_limit->orders.pop_front();
