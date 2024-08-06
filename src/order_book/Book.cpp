@@ -34,9 +34,9 @@ Limit* Book::find_or_create_limit(double price, OrderType type) {
   return new_limit;
 }
 
-void Book::new_order(Order* order) {
+std::vector<Match> Book::new_order(Order* order) {
   std::cout << order->serializeOrder() << std::endl;
-  match_order(order);
+  std::vector<Match> fulfillments = match_order(order);
 
   // add order if there is any quantity left
   if (order -> quantity > 0) {
@@ -44,6 +44,7 @@ void Book::new_order(Order* order) {
     limit->add_order(order);
     order_map[order->id] = order;
   }
+  return fulfillments;
 }
 
 void Book::delete_order(std::string order_id) {
@@ -53,7 +54,7 @@ void Book::delete_order(std::string order_id) {
   limit->remove_order(order_id);
 }
 
-void Book::match_order(Order* order) {
+std::vector<Match> Book::match_order(Order* order) {
   std::map<double, Limit*>* limits = nullptr;
   switch(order->type) {
     case OrderType::BUY:
@@ -63,9 +64,9 @@ void Book::match_order(Order* order) {
       limits = &buy_limits;
       break;
   }
-
+  std::vector<Match> fulfillments;
   auto limit_pair = limits->find(order->price);
-  if (limit_pair == limits->end()) { return; }
+  if (limit_pair == limits->end()) { return fulfillments; }
 
   Limit *curr_limit = limit_pair->second;
 
@@ -82,12 +83,15 @@ void Book::match_order(Order* order) {
     curr_limit->total_volume -= quantity_matched;
     Match matched(order->id, to_be_matched->id, order->price, quantity_matched);
     std::cout << matched.serializeMatch() << std::endl;
+    fulfillments.push_back(matched);
 
     if (to_be_matched->quantity == 0) {
       curr_limit->orders.pop_front();
       delete to_be_matched;
     }
   }
+
+  return fulfillments;
 }
 
 void Book::print_book() {
