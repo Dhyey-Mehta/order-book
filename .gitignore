@@ -1,7 +1,7 @@
 # Ignore object files
 *.o
 
-src/order_book/kafka_config.txt
+src/kafka_config.txt
 
 # Ignore the trading_app executable
 src/order_book/trading_app

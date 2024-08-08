@@ -3,34 +3,42 @@
 Book::Book() {}
 
 Book::~Book() {
-    for (auto& pair : buy_limits) {
+    for (auto& pair : buy_map) {
         delete pair.second;
     }
-    for (auto& pair : sell_limits) {
+    for (auto& pair : sell_map) {
         delete pair.second;
     }
-    buy_limits.clear();
-    sell_limits.clear();
+    buy_map.clear();
+    sell_map.clear();
 }
 
 Limit* Book::find_or_create_limit(double price, OrderType type) {
-  std::map<double, Limit*>* limits = nullptr;
+  std::unordered_map<double, Limit*>* limits_map = nullptr;
+  std::priority_queue<std::pair<double, Limit*>>* limits_heap = nullptr;
+  double price_in_heap = price;
+
   switch(type) {
     case OrderType::BUY:
-      limits = &buy_limits;
+      limits_map = &buy_map;
+      limits_heap = &buy_heap;
       break;
     case OrderType::SELL:
-      limits = &sell_limits;
+      limits_map = &sell_map;
+      limits_heap = &sell_heap;
+      price_in_heap = -price;
       break;
   }
 
-  auto it = limits->find(price);
-  if (it != limits->end()) {
+  auto it = limits_map->find(price);
+  if (it != limits_map->end()) {
     return it->second;
   }
   
   Limit *new_limit = new Limit(price);
-  (*limits)[price] = new_limit;
+  (*limits_map)[price] = new_limit;
+  limits_heap->push(std::pair(price_in_heap, new_limit));
+
   return new_limit;
 }
 
@@ -55,39 +63,52 @@ void Book::delete_order(std::string order_id) {
 }
 
 std::vector<Match> Book::match_order(Order* order) {
-  std::map<double, Limit*>* limits = nullptr;
+  std::priority_queue<std::pair<double, Limit*>>* limits = nullptr;
+  std::unordered_map<double, Limit*>* limits_map = nullptr;
+
   switch(order->type) {
     case OrderType::BUY:
-      limits = &sell_limits;
+      limits = &sell_heap;
+      limits_map = &sell_map;
       break;
     case OrderType::SELL:
-      limits = &buy_limits;
+      limits = &buy_heap;
+      limits_map = &buy_map;
       break;
   }
   std::vector<Match> fulfillments;
-  auto limit_pair = limits->find(order->price);
-  if (limit_pair == limits->end()) { return fulfillments; }
 
-  Limit *curr_limit = limit_pair->second;
+  while (!limits->empty() && order->quantity > 0) {
+    Limit *curr_limit = limits->top().second;
+    bool is_tradeable = order->type == OrderType::BUY ? curr_limit->price <= order->price : order->price <= curr_limit->price;
+    if (!is_tradeable) { break; }
 
-  while (curr_limit->total_volume > 0 && order->quantity > 0) {
-    Order *to_be_matched = curr_limit->orders.front();
-    int quantity_matched = std::min(
-        to_be_matched->quantity,
-        order->quantity
-    );
+    while (curr_limit->total_volume > 0 && order->quantity > 0) {
+      Order *to_be_matched = curr_limit->orders.front();
+      int quantity_matched = std::min(
+          to_be_matched->quantity,
+          order->quantity
+      );
 
-    // adjust quantity as orders are matched
-    to_be_matched->quantity -= quantity_matched;
-    order->quantity -= quantity_matched;
-    curr_limit->total_volume -= quantity_matched;
-    Match matched(order->id, to_be_matched->id, order->price, quantity_matched);
-    std::cout << matched.serializeMatch() << std::endl;
-    fulfillments.push_back(matched);
+      // adjust quantity as orders are matched
+      to_be_matched->quantity -= quantity_matched;
+      order->quantity -= quantity_matched;
+      curr_limit->total_volume -= quantity_matched;
+      Match matched(order->id, to_be_matched->id, order->price, quantity_matched);
+      std::cout << matched.serializeMatch() << std::endl;
+      fulfillments.push_back(matched);
 
-    if (to_be_matched->quantity == 0) {
-      curr_limit->orders.pop_front();
-      delete to_be_matched;
+      if (to_be_matched->quantity == 0) {
+        curr_limit->orders.pop_front();
+        // TODO: remove from orders map
+        delete to_be_matched;
+      }
+    }
+
+    if (curr_limit->total_volume == 0) {
+      limits->pop();
+      limits_map->erase(curr_limit->price);
+      delete curr_limit;
     }
   }
 
@@ -97,13 +118,13 @@ std::vector<Match> Book::match_order(Order* order) {
 void Book::print_book() {
   std::cout << "____________________________________________________________" << std::endl;
   std::cout << "BUY LIMITS:" << std::endl;
-  for (auto& pair : buy_limits) {
+  for (auto& pair : buy_map) {
     std::cout << "  price: " << pair.second->price;
     std::cout << "  quantity: " << pair.second->total_volume << std::endl;
   }
 
   std::cout << "SELL LIMITS:" << std::endl;
-  for (auto& pair : sell_limits) {
+  for (auto& pair : sell_map) {
     std::cout << "  price: " << pair.second->price;
     std::cout << "  quantity: " << pair.second->total_volume << std::endl;
   }
