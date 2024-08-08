@@ -15,6 +15,8 @@ export enum OrderType {
 
 interface OrderBookProps {
   windowWidth: number;
+  bids: number[][];
+  asks: number[][];
 }
 
 interface Delta {
@@ -39,12 +41,7 @@ const transformArr = (arg: number[][]): number[][] => {
 };
 
 
-const OrderBook: FunctionComponent<OrderBookProps> = ({ windowWidth }) => {
-  // [price, amount, total]
-  const bids: number[][] = [[18.00, 25], [16.00, 13]];
-  const asks: number[][] = [[20.00, 19], [21.00, 30]];
-
-
+const OrderBook: FunctionComponent<OrderBookProps> = ({ windowWidth, bids, asks}) => {
   const formatPrice = (arg: number): string => {
     return arg.toLocaleString("en", { useGrouping: true, minimumFractionDigits: 2 })
   };
@@ -62,7 +59,17 @@ const OrderBook: FunctionComponent<OrderBookProps> = ({ windowWidth }) => {
       }
     );
 
-    sortedLevelsByPrice = transformArr(sortedLevelsByPrice)
+    const sumOfAllVolumes = sortedLevelsByPrice.reduce((sum, [_, volume]) => sum + volume, 0);
+  
+    let cumulativeSum = 0;
+  
+    sortedLevelsByPrice = sortedLevelsByPrice.map(([price, volume]) => {
+      cumulativeSum += volume;
+      const total_scaled = (cumulativeSum / sumOfAllVolumes) * 100;
+      return [price, volume, cumulativeSum, total_scaled];
+    });
+
+    console.log(sortedLevelsByPrice)
 
     return (
       sortedLevelsByPrice.map((level, idx) => {
