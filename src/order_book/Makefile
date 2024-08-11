@@ -1,7 +1,7 @@
 # Compiler
 CXX = g++
-CXXFLAGS = -std=c++17 -Wall -I../common $(shell pkg-config --cflags glib-2.0 rdkafka)
-LDFLAGS = $(shell pkg-config --libs glib-2.0 rdkafka)
+CXXFLAGS = -std=c++17 -Wall $(shell pkg-config --cflags glib-2.0 rdkafka)
+LDFLAGS = $(shell pkg-config --libs glib-2.0 rdkafka) -lpthread
 
 # Source files
 SRCS = main.cpp Limit.cpp Book.cpp Match.cpp Order.cpp

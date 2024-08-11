@@ -1,6 +1,7 @@
-#include <glib.h>
-#include <librdkafka/rdkafka.h>
+#include <kafka/KafkaConsumer.h>
+#include <kafka/KafkaProducer.h>
 #include <fstream>
+#include <signal.h>
 #include <iostream>
 #include <map>
 #include <string>
@@ -13,143 +14,99 @@
 #include "Order.h"
 #include "kafka.cpp"
 
-static volatile sig_atomic_t run = 1;
 
-/**
- * @brief Signal termination of program
- */
-static void stop(int sig) {
-    run = 0;
+std::atomic_bool running = {true};
+
+void stopRunning(int sig) {
+    if (sig != SIGINT) return;
+
+    if (running) {
+        running = false;
+    } else {
+        // Restore the signal handler, -- to avoid stuck with this handler
+        signal(SIGINT, SIG_IGN); // NOLINT
+    }
 }
 
-std::map<std::string, char*> read_config(const std::string &filename) {
-    std::map<std::string, char*> config;
+std::map<std::string, std::string> read_config(const std::string &filename) {
+    std::map<std::string, std::string> config;
     std::ifstream file(filename);
     std::string line;
     while (std::getline(file, line)) {
         auto delimiter_pos = line.find("=");
         std::string key = line.substr(0, delimiter_pos);
         std::string value = line.substr(delimiter_pos + 1);
-        char* value_cstr = new char[value.length() + 1];
-        std::strcpy(value_cstr, value.c_str());
-        config[key] = value_cstr;
+        config[key] = value;
     }
     return config;
 }
 
-// void produce_match(rd_kafka_t* producer, std::string match_str) {
-//     rd_kafka_resp_err_t err = rd_kafka_producev(
-//         producer,
-//         RD_KAFKA_V_TOPIC("matches"),
-//         RD_KAFKA_V_PARTITION(RD_KAFKA_PARTITION_UA),
-//         RD_KAFKA_V_MSGFLAGS(RD_KAFKA_MSG_F_COPY),
-//         RD_KAFKA_V_VALUE(const_cast<char*>(match_str.c_str()), match_str.size()),
-//         RD_KAFKA_V_OPAQUE(NULL),
-//         RD_KAFKA_V_END
-//     );
-
-//     if (err) {
-//         std::cerr << "Failed to produce match: " << rd_kafka_err2str(err) << std::endl;
-//     }
-// }
-
 int main() {
+    using namespace kafka;
+    using namespace kafka::clients::consumer;
+    using namespace kafka::clients::producer;
+
+
+    signal(SIGINT, stopRunning);
+    std::map<std::string, std::string> config = read_config("../kafka_config.txt");
+
+    const Topic trades_topic = "trades";
+    const Topic matches_topic = "matches";
+
+    Properties props;
+    props.put("bootstrap.servers", config["bootstrap.servers"]);
+    props.put("sasl.username", config["sasl.username"]);
+    props.put("sasl.password", config["sasl.password"]);
+    props.put("security.protocol", "SASL_SSL");
+    props.put("sasl.mechanisms", "PLAIN");
+    props.put("group.id", "kafkac-getting-started");
+    props.put("auto.offset.reset", "earliest");
+
+    KafkaConsumer consumer(props);
+    KafkaProducer producer(props);
+    consumer.subscribe({trades_topic});
+
     Book* book = new Book();
 
-    rd_kafka_t *consumer;
-    rd_kafka_conf_t *conf;
-    rd_kafka_resp_err_t err;
-    char errstr[512];
-
-    // Create client configuration
-    conf = rd_kafka_conf_new();
-
-    std::map<std::string, char*> config = read_config("kafka_config.txt");
-    set_config(conf, "bootstrap.servers", config["bootstrap.servers"]);
-    set_config(conf, "sasl.username", config["sasl.username"]);
-    set_config(conf, "sasl.password", config["sasl.password"]);
-
-    // Fixed properties
-    set_config(conf, "security.protocol", "SASL_SSL");
-    set_config(conf, "sasl.mechanisms", "PLAIN");
-    set_config(conf, "group.id", "kafka-c-getting-started");
-    set_config(conf, "auto.offset.reset", "earliest");
-
-    // Create the Consumer instance.
-    consumer = rd_kafka_new(RD_KAFKA_CONSUMER, conf, errstr, sizeof(errstr));
-    if (!consumer) {
-        std::cerr << "Failed to initialize consumer: " << errstr << std::endl;
-        delete book;
-        return 1;
-    }
-    rd_kafka_poll_set_consumer(consumer);
-
-    // Configuration object is now owned, and freed, by the rd_kafka_t instance.
-    conf = NULL;
-
-    // Convert the list of topics to a format suitable for librdkafka.
-    const char *topic = "orders";
-    rd_kafka_topic_partition_list_t *subscription = rd_kafka_topic_partition_list_new(1);
-    rd_kafka_topic_partition_list_add(subscription, topic, RD_KAFKA_PARTITION_UA);
-
-    // Subscribe to the list of topics.
-    err = rd_kafka_subscribe(consumer, subscription);
-    if (err) {
-        std::cerr << "Failed to subscribe to topics: " << rd_kafka_err2str(err) << std::endl;
-        rd_kafka_topic_partition_list_destroy(subscription);
-        rd_kafka_destroy(consumer);
-        delete book;
-        return 1;
-    }
-
-    rd_kafka_topic_partition_list_destroy(subscription);
-
-    // Install a signal handler for clean shutdown.
-    signal(SIGINT, stop);
-
-    // Start polling for messages.
-    while (run) {
-        rd_kafka_message_t *consumer_message;
-
-        consumer_message = rd_kafka_consumer_poll(consumer, 500);
-        if (!consumer_message) {
-            continue;
-        }
-
-        if (consumer_message->err) {
-            if (consumer_message->err == RD_KAFKA_RESP_ERR__PARTITION_EOF) {
-                // We can ignore this error - it just means we've read
-                // everything and are waiting for more data.
-            } else {
-                std::cerr << "Consumer error: " << rd_kafka_message_errstr(consumer_message) << std::endl;
-                break;
-            }
+    // delivery callback
+    auto deliveryCb = [](const RecordMetadata& metadata, const Error& error) {
+        if (!error) {
+            std::cout << "Message delivered: " << metadata.toString() << std::endl;
         } else {
-            std::string payload(static_cast<char*>(consumer_message->payload), consumer_message->len);
-            try {
-                Order* order = Order::deserializeOrder(payload);
-                std::vector<Match> matches = book->new_order(order);
-                
-                // Produce matches to Kafka
-                // for (auto match : matches) {
-                //     produce_match(producer, match.serializeMatch());
-                // }
-            } catch (const std::exception& e) {
-                std::cerr << "Failed to deserialize order: " << e.what() << std::endl;
+            std::cerr << "Message failed to be delivered: " << error.message() << std::endl;
+        }
+    };
+
+
+    while (running) {
+        // Poll messages from Kafka brokers
+        auto records = consumer.poll(std::chrono::milliseconds(100));
+
+        for (const auto& record: records) {
+            if (!record.error()) {
+                try {
+                    Order* order = Order::deserializeOrder(record.value().toString());
+                    std::vector<Match> matches = book->new_order(order);
+                    for (auto matching : matches) {
+                        std::string match_message = matching.serializeMatch();
+                        char* char_match = new char[match_message.size() + 1];
+                        std::strcpy(char_match, match_message.data());
+
+                        ProducerRecord record(matches_topic, NullKey, Value(char_match, strlen(char_match)));
+                        producer.send(record, deliveryCb);
+                        delete char_match;
+                    }
+                } catch (const std::exception& e) {
+                    std::cerr << "Failed to deserialize order: " << e.what() << std::endl;
+                }
+            } else {
+                std::cerr << record.toString() << std::endl;
             }
         }
-
-        // Free the message when we're done.
-        rd_kafka_message_destroy(consumer_message);
     }
 
-    // Close the consumer: commit final offsets and leave the group.
-    std::cout << "Closing consumer" << std::endl;
-    rd_kafka_consumer_close(consumer);
-
-    // Destroy the consumer.
-    rd_kafka_destroy(consumer);
-
+    producer.close();
+    consumer.close();
     book->print_book();
 
     delete book;
