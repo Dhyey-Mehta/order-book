@@ -69,8 +69,6 @@ const OrderBook: FunctionComponent<OrderBookProps> = ({ windowWidth, bids, asks}
       return [price, volume, cumulativeSum, total_scaled];
     });
 
-    console.log(sortedLevelsByPrice)
-
     return (
       sortedLevelsByPrice.map((level, idx) => {
         const calculatedTotal: number = level[2];
