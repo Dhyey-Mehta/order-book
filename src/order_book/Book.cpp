@@ -94,7 +94,9 @@ std::vector<Match> Book::match_order(Order* order) {
       to_be_matched->quantity -= quantity_matched;
       order->quantity -= quantity_matched;
       curr_limit->total_volume -= quantity_matched;
-      Match matched(order->id, to_be_matched->id, order->price, quantity_matched);
+      double ask_price = order->type == OrderType::BUY ? to_be_matched->price : order->price;
+      double bid_price = order->type == OrderType::BUY ? order->price : to_be_matched->price;
+      Match matched(order->id, to_be_matched->id, order->price, quantity_matched, ask_price, bid_price);
       std::cout << matched.serializeMatch() << std::endl;
       fulfillments.push_back(matched);
 
