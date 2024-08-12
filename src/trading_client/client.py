@@ -66,7 +66,7 @@ def read_config(filename):
             key, value = line.strip().split('=', 1)
             config[key] = value
     return config
-config = read_config('../common/kafka_config.txt')
+config = read_config('../kafka_config.txt')
 
 conf = {'bootstrap.servers': config['bootstrap.servers'],
         'security.protocol': 'SASL_SSL',
@@ -2228,7 +2228,6 @@ def market_session(sess_id, starttime, endtime, trader_spec, order_schedule, dum
         # return
 
 def send_to_kafka(order):
-    order.qty = random.randrange(1,15) # override quantity of orders
     if order.otype == 'Bid':
         order.otype = '0'
     elif order.otype == 'Ask':
@@ -2236,14 +2235,14 @@ def send_to_kafka(order):
     
     ser_order = order.serialize()
 
-    producer.produce("orders", key=order.tid, value=ser_order)
+    producer.produce("trades", key=order.tid, value=ser_order)
     print(ser_order)
 
 #############################
 
 if __name__ == "__main__":
     start_time = 0.0
-    end_time = 60.0
+    end_time = 120.0
     duration = end_time - start_time
 
     # schedule_offsetfn returns time-dependent offset, to be added to schedule prices

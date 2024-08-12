@@ -5,17 +5,18 @@ import OrderBook from '@/app/OrderBook';
 import { io } from "socket.io-client";
 
 const LandingPage = () => {
-  const [bids, setBids] = useState([[18.00, 25]]);
-  const [asks, setAsks] = useState([[20.00, 25]]);
+  const [bids, setBids] = useState([]);
+  const [asks, setAsks] = useState([]);
 
   // handle incoming order or match
   const delta_bids = (price: number, volume: number) => {
+        console.log("incoming bid:" + price + " " + volume)
         setBids((curr_bids) => {
           const index = curr_bids.findIndex((elem) => elem[0] == price);
           if (index > -1) {
             // Update the volume at the existing price point
             const updatedOrderBook = [...curr_bids];
-            updatedOrderBook[index][1] += volume;
+            updatedOrderBook[index] = [price, updatedOrderBook[index][1] + volume];
             return updatedOrderBook;
         } else {
           // Insert new price point
@@ -26,12 +27,13 @@ const LandingPage = () => {
   };
 
   const delta_asks = (price: number, volume: number) => {
+    console.log("incoming ask:" + price + " " + volume)
     setAsks((curr_asks) => {
       const index = curr_asks.findIndex((elem) => elem[0] == price);
       if (index > -1) {
         // Update the volume at the existing price point
         let updatedOrderBook = [...curr_asks];
-        updatedOrderBook[index][1] += volume;
+        updatedOrderBook[index] = [price, updatedOrderBook[index][1] + volume];
         return updatedOrderBook;
     } else {
       // Insert new price point
