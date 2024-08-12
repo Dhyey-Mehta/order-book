@@ -14,7 +14,7 @@ const SocketHandler = async (req, res) => {
         },
     });
 
-    const consumer = kafka.consumer({ groupId: 'kafkac-getting-started' });
+    const consumer = kafka.consumer({ groupId: 'order-book-client' });
     await consumer.subscribe({ topic: 'trades', fromBeginning: true });
     await consumer.subscribe({ topic: 'matches', fromBeginning: true });
 
