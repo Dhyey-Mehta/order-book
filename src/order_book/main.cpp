@@ -89,12 +89,8 @@ int main() {
                     std::vector<Match> matches = book->new_order(order);
                     for (auto matching : matches) {
                         std::string match_message = matching.serializeMatch();
-                        char* char_match = new char[match_message.size() + 1];
-                        std::strcpy(char_match, match_message.data());
-
-                        ProducerRecord record(matches_topic, NullKey, Value(char_match, strlen(char_match)));
-                        producer.send(record, deliveryCb);
-                        delete char_match;
+                        ProducerRecord record(matches_topic, NullKey, Value(match_message.c_str(), match_message.size()));
+                        producer.send(record, deliveryCb, KafkaProducer::SendOption::ToCopyRecordValue);
                     }
                 } catch (const std::exception& e) {
                     std::cerr << "Failed to deserialize order: " << e.what() << std::endl;
