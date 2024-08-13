@@ -14,9 +14,10 @@ OrderBook is a high-performance limit order book system designed to manage and m
 
 ## Tech Stack
 
-- **Visualization:** Next.js, React.js, Socket.io
-- **Backend:** C++
-- **Data Streaming:** Apache Kafka
+- **Visualization:** Next.js, React.js, Node.js, Typescript, Socket.io
+- **Matching Engine:** C++
+- **Market Simulation:** Python
+- **Data Streaming:** Apache Kafka, Confluent Cloud
 
 
 ## Installation
@@ -101,6 +102,17 @@ OrderBook/
 │
 └── .gitignore                 # Git ignore file
 ```
+
+## Helpful Resources
+
+Here are a few helpful resources that helped build this project:
+
+- Foundations of Reinforcement Learning with Applications in Finance: https://stanford.edu/~ashlearn/RLForFinanceBook/chapter9.pdf
+
+- How to build an Exchange (Jane Street): https://www.youtube.com/watch?v=b1e4t2k2KJY
+
+- Bristol Stock Exchange: https://github.com/davecliff/BristolStockExchange
+
 
 ## License
 
