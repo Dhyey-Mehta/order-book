@@ -25,6 +25,7 @@
     "socket.io-client": "^4.7.5",
     "styled-components": "^6.1.12",
     "tls": "^0.0.1",
+    "use-chat-scroll": "^1.0.3",
     "ws": "^8.18.0"
   },
   "devDependencies": {

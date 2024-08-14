@@ -1,7 +1,5 @@
 # -*- coding: utf-8 -*-
 #
-# We modify the BSE (Bristol Stock Exchange) code to generate limit orders and send them through Kafka
-#
 # BSE: The Bristol Stock Exchange
 #
 # Version 1.8; March 2023 added ZIPSH
@@ -53,7 +51,9 @@
 import sys
 import math
 import random
+import os
 import time as chrono
+import numpy as np
 
 from confluent_kafka import Producer
 import socket
@@ -76,6 +76,13 @@ conf = {'bootstrap.servers': config['bootstrap.servers'],
         'client.id': socket.gethostname()}
 producer = Producer(conf)
 
+def send_to_kafka(order):
+    ser_order = order.serialize()
+
+    producer.produce("trades", key=order.tid, value=ser_order)
+    chrono.sleep(0.3) # slow it down for kafka
+    print(ser_order)
+
 # a bunch of system constants (globals)
 bse_sys_minprice = 1                    # minimum price in the system, in cents/pennies
 bse_sys_maxprice = 500                  # maximum price in the system, in cents/pennies
@@ -90,7 +97,7 @@ class Order:
         self.tid = tid  # trader i.d.
         self.otype = otype  # order type
         self.price = price  # price
-        self.qty = qty  # quantity
+        self.qty = random.randint(1,100)  # quantity
         self.time = time  # timestamp
         self.qid = qid  # quote i.d. (unique to each quote)
 
@@ -98,7 +105,15 @@ class Order:
         return '[%s %s P=%03d Q=%s T=%5.2f QID:%d]' % \
                (self.tid, self.otype, self.price, self.qty, self.time, self.qid)
     def serialize(self):
-        return f"order:{self.tid + str(int(self.qid))},{self.tid},{self.price},{self.qty},{self.otype}"
+        type_ord = random.randint(0,1)
+        if type_ord == 0:
+            otype_kafka = '0'
+            price_kafka = round(np.random.normal(67.0, 5),2)
+        else:
+            otype_kafka = '1'
+            price_kafka = round(np.random.normal(68.5, 5),2)
+        
+        return f"order:{self.tid + str(int(self.qid))},{self.tid},{price_kafka},{self.qty},{otype_kafka}"
 
 
 # Orderbook_half is one side of the book: a list of bids or a list of asks, each sorted best-first
@@ -303,6 +318,7 @@ class Exchange(Orderbook):
     def process_order2(self, time, order, verbose):
         # receive an order and either add it to the relevant LOB (ie treat as limit order)
         # or if it crosses the best counterparty offer, execute it (treat as a market order)
+        send_to_kafka(order)
         oprice = order.price
         counterparty = None
         price = None
@@ -2195,9 +2211,107 @@ def customer_orders(time, last_update, traders, trader_stats, os, pending, verbo
 
 # one session in the market
 def market_session(sess_id, starttime, endtime, trader_spec, order_schedule, dump_flags, verbose):
+
+    def dump_strats_frame(time, stratfile, trdrs):
+        # write one frame of strategy snapshot
+
+        line_str = 't=,%.0f, ' % time
+
+        best_buyer_id = None
+        best_buyer_prof = 0
+        best_buyer_strat = None
+        best_seller_id = None
+        best_seller_prof = 0
+        best_seller_strat = None
+
+        # loop through traders to find the best
+        for t in traders:
+            trader = trdrs[t]
+
+            # print('PRSH/PRDE/ZIPSH strategy recording, t=%s' % trader)
+            if trader.ttype == 'PRSH' or trader.ttype == 'PRDE' or trader.ttype == 'ZIPSH':
+                line_str += 'id=,%s, %s,' % (trader.tid, trader.ttype)
+
+                if trader.ttype == 'ZIPSH':
+                    # we know that ZIPSH sorts the set of strats into best-first
+                    act_strat = trader.strats[0]['stratvec']
+                    act_prof = trader.strats[0]['pps']
+                else:
+                    act_strat = trader.strats[trader.active_strat]['stratval']
+                    act_prof = trader.strats[trader.active_strat]['pps']
+
+                line_str += 'actvstrat=,%s ' % trader.strat_csv_str(act_strat)
+                line_str += 'actvprof=,%f, ' % act_prof
+
+                if trader.tid[:1] == 'B':
+                    # this trader is a buyer
+                    if best_buyer_id is None or act_prof > best_buyer_prof:
+                        best_buyer_id = trader.tid
+                        best_buyer_strat = act_strat
+                        best_buyer_prof = act_prof
+                elif trader.tid[:1] == 'S':
+                    # this trader is a seller
+                    if best_seller_id is None or act_prof > best_seller_prof:
+                        best_seller_id = trader.tid
+                        best_seller_strat = act_strat
+                        best_seller_prof = act_prof
+                else:
+                    # wtf?
+                    sys.exit('unknown trader id type in market_session')
+
+        if best_buyer_id is not None:
+            line_str += 'best_B_id=,%s, best_B_prof=,%f, best_B_strat=, ' % (best_buyer_id, best_buyer_prof)
+            line_str += traders[best_buyer_id].strat_csv_str(best_buyer_strat)
+
+        if best_seller_id is not None:
+            line_str += 'best_S_id=,%s, best_S_prof=,%f, best_S_strat=, ' % (best_seller_id, best_seller_prof)
+            line_str += traders[best_seller_id].strat_csv_str(best_seller_strat)
+
+        line_str += '\n'
+
+        if verbose:
+            print('line_str: %s' % line_str)
+        stratfile.write(line_str)
+        stratfile.flush()
+        os.fsync(stratfile)
+
+    def blotter_dump(session_id, traders):
+        bdump = open(session_id+'_blotters.csv', 'w')
+        for t in traders:
+            bdump.write('%s, %d\n' % (traders[t].tid, len(traders[t].blotter)))
+            for b in traders[t].blotter:
+                bdump.write('%s, %s, %.3f, %d, %s, %s, %d\n'
+                            % (traders[t].tid, b['type'], b['time'], b['price'], b['party1'], b['party2'], b['qty']))
+        bdump.close()
+
+    orders_verbose = False
+    lob_verbose = False
+    process_verbose = False
+    respond_verbose = False
+    bookkeep_verbose = False
+    populate_verbose = False
+
+    if dump_flags['dump_strats']:
+        strat_dump = open(sess_id + '_strats.csv', 'w')
+    else:
+        strat_dump = None
+
+    if dump_flags['dump_lobs']:
+        lobframes = open(sess_id + '_LOB_frames.csv', 'w')
+    else:
+        lobframes = None
+
+    if dump_flags['dump_avgbals']:
+        avg_bals = open(sess_id + '_avg_balance.csv', 'w')
+    else:
+        avg_bals = None
+
+    # initialise the exchange
+    exchange = Exchange()
+
     # create a bunch of traders
     traders = {}
-    trader_stats = populate_market(trader_spec, traders, True, False)
+    trader_stats = populate_market(trader_spec, traders, True, populate_verbose)
 
     # timestep set so that can process all traders in one second
     # NB minimum interarrival time of customer orders may be much less than this!!
@@ -2211,6 +2325,12 @@ def market_session(sess_id, starttime, endtime, trader_spec, order_schedule, dum
 
     pending_cust_orders = []
 
+    if verbose:
+        print('\n%s;  ' % sess_id)
+
+    # frames_done is record of what frames we have printed data for thus far
+    frames_done = set()
+
     while time < endtime:
 
         # how much time left, as a percentage?
@@ -2221,28 +2341,92 @@ def market_session(sess_id, starttime, endtime, trader_spec, order_schedule, dum
         trade = None
 
         [pending_cust_orders, kills] = customer_orders(time, last_update, traders, trader_stats,
-                                                       order_schedule, pending_cust_orders, False)
-        for i in range(len(pending_cust_orders)):
-            send_to_kafka(pending_cust_orders[i])
+                                                       order_schedule, pending_cust_orders, orders_verbose)
+
+        # if any newly-issued customer orders mean quotes on the LOB need to be cancelled, kill them
+        if len(kills) > 0:
+            # if verbose : print('Kills: %s' % (kills))
+            for kill in kills:
+                # if verbose : print('lastquote=%s' % traders[kill].lastquote)
+                if traders[kill].lastquote is not None:
+                    # if verbose : print('Killing order %s' % (str(traders[kill].lastquote)))
+                    exchange.del_order(time, traders[kill].lastquote, verbose)
+
+        # get a limit-order quote (or None) from a randomly chosen trader
+        tid = list(traders.keys())[random.randint(0, len(traders) - 1)]
+        order = traders[tid].getorder(time, time_left, exchange.publish_lob(time, lobframes, lob_verbose))
+
+        # if verbose: print('Trader Quote: %s' % (order))
+
+        if order is not None:
+            if order.otype == 'Ask' and order.price < traders[tid].orders[0].price:
+                sys.exit('Bad ask')
+            if order.otype == 'Bid' and order.price > traders[tid].orders[0].price:
+                sys.exit('Bad bid')
+            # send order to exchange
+            traders[tid].n_quotes = 1
+            trade = exchange.process_order2(time, order, process_verbose)
+            if trade is not None:
+                # trade occurred,
+                # so the counterparties update order lists and blotters
+                traders[trade['party1']].bookkeep(trade, order, bookkeep_verbose, time)
+                traders[trade['party2']].bookkeep(trade, order, bookkeep_verbose, time)
+                if dump_flags['dump_avgbals']:
+                    trade_stats(sess_id, traders, avg_bals, time, exchange.publish_lob(time, lobframes, lob_verbose))
+
+            # traders respond to whatever happened
+            lob = exchange.publish_lob(time, lobframes, lob_verbose)
+            any_record_frame = False
+            for t in traders:
+                # NB respond just updates trader's internal variables
+                # doesn't alter the LOB, so processing each trader in
+                # sequence (rather than random/shuffle) isn't a problem
+                record_frame = traders[t].respond(time, lob, trade, respond_verbose)
+                if record_frame:
+                    any_record_frame = True
+
+            # log all the PRSH/PRDE/ZIPSH strategy info for this timestep?
+            if any_record_frame and dump_flags['dump_strats']:
+                # print one more frame to strategy dumpfile
+                dump_strats_frame(time, strat_dump, traders)
+                # record that we've written this frame
+                frames_done.add(int(time))
+
         time = time + timestep
-        # return
 
-def send_to_kafka(order):
-    if order.otype == 'Bid':
-        order.otype = '0'
-    elif order.otype == 'Ask':
-        order.otype = '1'
-    
-    ser_order = order.serialize()
+    # session has ended
 
-    producer.produce("trades", key=order.tid, value=ser_order)
-    print(ser_order)
+    # write trade_stats for this session (NB could use this to write end-of-session summary only)
+    if dump_flags['dump_avgbals']:
+        trade_stats(sess_id, traders, avg_bals, time, exchange.publish_lob(time, lobframes, lob_verbose))
+        avg_bals.close()
+
+    if dump_flags['dump_tape']:
+        # dump the tape (transactions only -- not writing cancellations)
+        exchange.tape_dump(sess_id + '_tape.csv', 'w', 'keep')
+
+    if dump_flags['dump_blotters']:
+        # record the blotter for each trader
+        blotter_dump(sess_id, traders)
+
+    if dump_flags['dump_strats']:
+        strat_dump.close()
+
+    if dump_flags['dump_lobs']:
+        lobframes.close()
 
 #############################
 
+# # Below here is where we set up and run a whole series of experiments
+
+
 if __name__ == "__main__":
+
+    # set up common parameters for all market sessions
+    # 1000 days is good, but 3*365=1095, so may as well go for three years.
+    n_days = 10
     start_time = 0.0
-    end_time = 120.0
+    end_time = 60.0 * 60.0 * 24 * n_days
     duration = end_time - start_time
 
     # schedule_offsetfn returns time-dependent offset, to be added to schedule prices
@@ -2281,23 +2465,94 @@ if __name__ == "__main__":
     order_sched = {'sup': supply_schedule, 'dem': demand_schedule,
                    'interval': order_interval, 'timemode': 'drip-poisson'}
 
+    # Use 'periodic' if you want the traders' assignments to all arrive simultaneously & periodically
+    #               'order_interval': 30, 'timemode': 'periodic'}
+
+    # buyers_spec = [('GVWY',10),('SHVR',10),('ZIC',10),('ZIP',10)]
+    # sellers_spec = [('GVWY',10),('SHVR',10),('ZIC',10),('ZIP',10)]
+
+    opponent = 'GVWY'
+    opp_N = 30
+#    sellers_spec = [('PRSH', 30),(opponent, opp_N-1)]
+#    buyers_spec = [(opponent, opp_N)]
+
+
     # run a sequence of trials, one session per trial
 
     verbose = False
-    trial_id = 'bse_d1'
 
-    buyers_spec = [('ZIPSH', 10, {'k': 4})]
-    sellers_spec = [('ZIPSH', 10, {'k': 4})]
+    # n_trials is how many trials (i.e. market sessions) to run in total
+    n_trials = 5
 
-    buyers_spec = [('SHVR', 5), ('GVWY', 5), ('ZIC', 5), ('ZIP', 5)]
-    sellers_spec = buyers_spec
+    # n_recorded is how many trials (i.e. market sessions) to write full data-files for
+    n_trials_recorded = 5
 
-    traders_spec = {'sellers': sellers_spec, 'buyers': buyers_spec}
+    trial = 1
 
-    dump_flags = {'dump_blotters': False, 'dump_lobs': False, 'dump_strats': False,
-                    'dump_avgbals': False, 'dump_tape': False}
+    while trial < (n_trials+1):
 
+        # create unique i.d. string for this trial
+        trial_id = 'bse_d%03d_i%02d_%04d' % (n_days, order_interval, trial)
 
-    market_session(trial_id, start_time, end_time, traders_spec, order_sched, dump_flags, verbose)
-    producer.flush()
+        buyers_spec = [('ZIPSH', 10, {'k': 4})]
+        sellers_spec = [('ZIPSH', 10, {'k': 4})]
 
+        buyers_spec = [('SHVR', 5), ('GVWY', 5), ('ZIC', 5), ('ZIP', 5)]
+        sellers_spec = buyers_spec
+
+        traders_spec = {'sellers': sellers_spec, 'buyers': buyers_spec}
+
+        if trial > n_trials_recorded:
+            dump_flags = {'dump_blotters': False, 'dump_lobs': False, 'dump_strats': False,
+                          'dump_avgbals': False, 'dump_tape': False}
+        else:
+            dump_flags = {'dump_blotters': True, 'dump_lobs': False, 'dump_strats': True,
+                          'dump_avgbals': True, 'dump_tape': True}
+
+        market_session(trial_id, start_time, end_time, traders_spec, order_sched, dump_flags, verbose)
+
+        trial = trial + 1
+
+    # run a sequence of trials that exhaustively varies the ratio of four trader types
+    # NB this has weakness of symmetric proportions on buyers/sellers -- combinatorics of varying that are quite nasty
+    #
+    # n_trader_types = 4
+    # equal_ratio_n = 4
+    # n_trials_per_ratio = 50
+    #
+    # n_traders = n_trader_types * equal_ratio_n
+    #
+    # fname = 'balances_%03d.csv' % equal_ratio_n
+    #
+    # tdump = open(fname, 'w')
+    #
+    # min_n = 1
+    #
+    # trialnumber = 1
+    # trdr_1_n = min_n
+    # while trdr_1_n <= n_traders:
+    #     trdr_2_n = min_n
+    #     while trdr_2_n <= n_traders - trdr_1_n:
+    #         trdr_3_n = min_n
+    #         while trdr_3_n <= n_traders - (trdr_1_n + trdr_2_n):
+    #             trdr_4_n = n_traders - (trdr_1_n + trdr_2_n + trdr_3_n)
+    #             if trdr_4_n >= min_n:
+    #                 buyers_spec = [('GVWY', trdr_1_n), ('SHVR', trdr_2_n),
+    #                                ('ZIC', trdr_3_n), ('ZIP', trdr_4_n)]
+    #                 sellers_spec = buyers_spec
+    #                 traders_spec = {'sellers': sellers_spec, 'buyers': buyers_spec}
+    #                 # print buyers_spec
+    #                 trial = 1
+    #                 while trial <= n_trials_per_ratio:
+    #                     trial_id = 'trial%07d' % trialnumber
+    #                     market_session(trial_id, start_time, end_time, traders_spec,
+    #                                    order_sched, tdump, False, True)
+    #                     tdump.flush()
+    #                     trial = trial + 1
+    #                     trialnumber = trialnumber + 1
+    #             trdr_3_n += 1
+    #         trdr_2_n += 1
+    #     trdr_1_n += 1
+    # tdump.close()
+    #
+    # print(trialnumber)
